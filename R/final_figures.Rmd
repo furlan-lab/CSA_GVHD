@@ -1,0 +1,535 @@
+---
+title: "final figures of CSA sc data"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+editor_options: 
+  chunk_output_type: console
+---
+```{r, include = FALSE}
+rm(list=ls())
+knitr::opts_chunk$set( echo = TRUE, message=FALSE, warning=FALSE, fig.width=8 )
+ROOT_DIR<-"/fh/fast/furlan_s/experiments/Ping"
+DATA_DIR <- file.path(ROOT_DIR, "data")      # SPECIFY HERE
+RES_DIR  <- file.path(ROOT_DIR,  "res")     # SPECIFY HERE
+RMD_DIR  <- file.path(ROOT_DIR,  "rmd")     # SPECIFY HERE
+CDS_DIR <- file.path(ROOT_DIR,   "cds")
+FIG_DIR <- file.path(ROOT_DIR,  "figs")
+
+suppressPackageStartupMessages({
+  library(monocle3)
+  library(m3addon)
+  library(dplyr)
+  library(Matrix)
+  library(reticulate)
+  library(ggplot2)
+  library(pals)
+  library(RColorBrewer)
+  library(Seurat)
+  library(ComplexHeatmap)
+  library(ArchR)
+  library(Biobase)
+  library(stringr)
+  library(viridis)
+  library(Seurat)
+  library(parallel)
+  library(scCustomize)
+  library(scRepertoire)
+  library(forcats)
+  library(ggalluvial)
+  library(future)
+  library(pbmcapply)
+  library(parallel)
+  library(dplyr)
+  library(msigdbr)
+  library(fgsea)
+  library(stringr)
+  library(harmony)
+  library(future)
+  library(ggplot2)
+  library(circlize)
+  library(msigdbr)
+  library(scales)
+})
+
+set.seed(1234)
+
+dyn.load('/app/software/ArrayFire/3.8.1/lib64/libaf.so.3')
+library(RcppArrayFire)
+library(viewmastR)
+
+plan("multisession", workers = 12)
+options(future.globals.maxSize = 60000000 * 1024^2)
+```
+
+# Load seu4 and seu8 object
+```{r}
+seu4<-readRDS(file.path(CDS_DIR, "ping_seu4.rds"))
+seu8<-readRDS(file.path(CDS_DIR, "ping_seu8.rds"))
+```
+
+# load colors
+```{r, load colors and object}
+cd4_clus_cols<-paletteDiscrete(values = levels(factor(seu4$seurat_clusters)), set = "bear")
+cd8_clus_cols<-paletteDiscrete(values = levels(factor(seu8$sub.cluster)), set = "calm", reverse = F)
+cond_cols<- c("firebrick", "purple", "blue")
+mouse_cols<-sfc(n=9)
+names(mouse_cols)<-levels(factor(seu4$id))
+h_cols <-rev(brewer.pal(name = "RdYlBu", n = 7))
+```
+
+# Dim Plot
+```{r}
+DimPlot(seu4, group.by = "seurat_clusters")+scale_color_manual(values = cd4_clus_cols)+NoAxes()
+DimPlot(seu8, group.by = "sub.cluster")+scale_color_manual(values = cd8_clus_cols)+NoAxes()
+```
+
+# seurat clusters on seu4 and seu8
+```{r}
+Idents(seu8)<- "seurat_clusters"
+DimPlot(seu4)+scale_color_manual(values = ArchR::paletteDiscrete(values = levels(factor(seu4$seurat_clusters)), set = "bear"))+NoAxes()+ggtitle("CD4")
+
+DimPlot(seu8, group.by = "seurat_clusters")+scale_color_manual(values = ArchR::paletteDiscrete(values = levels(factor(seu8$seurat_clusters)), set = "calm"))+NoAxes()+ggtitle("CD8")
+```
+
+# Doheatmap on top markers
+```{r cd4 heatmap seurat clusters}
+DefaultAssay(seu4)<-"RNA"
+Idents(seu4)<-"seurat_clusters"
+seu4_markers<-FindAllMarkers(seu4, only.pos = F) 
+#write.csv(seu4_markers, file.path(RES_DIR, "seu4_markers.csv"))
+
+top_n_4<- seu4_markers %>%
+dplyr::filter(!str_detect(gene, "^Rpl")) %>%
+dplyr::filter(!str_detect(gene, "^Rps"))%>%
+dplyr::filter(!str_detect(gene, "^mt-")) %>%
+group_by(cluster) %>%
+slice_max(n = 10, order_by = avg_log2FC ) 
+
+seu4<-ScaleData(seu4)
+
+DoHeatmap(seu4, features = top_n_4$gene, assay = "RNA", slot = "scale.data",group.by = "seurat_clusters", group.colors = cd4_clus_cols, raster = F)+scale_fill_gradientn(colours = h_cols)+ggtitle(label="CD4")
+```
+
+```{r cd4 heatmap cond}
+Idents(seu4)<-"cond"
+seu4_cond_markers<-FindAllMarkers(seu4)
+#write.csv(seu4_cond_markers, file.path(RES_DIR, "seu4_cond_markers.csv"))
+top_n_4_con<- seu4_cond_markers %>%
+dplyr::filter(!str_detect(gene, "^Rpl")) %>%
+dplyr::filter(!str_detect(gene, "^Rps"))%>%
+dplyr::filter(!str_detect(gene, "^mt-")) %>%
+group_by(cluster) %>%
+slice_max(n = 20, order_by = avg_log2FC ) 
+
+DoHeatmap(seu4, features = top_n_4_con$gene, assay = "RNA", group.by = "cond", group.colors = cond_cols, raster = T)+scale_fill_gradientn(colours = h_cols)+ggtitle(label="CD4")
+```
+
+```{r cd8 heatmap sub clusters}
+Idents(seu8)<-"sub.cluster"
+seu8_markers<-FindAllMarkers(seu8, only.pos = F)
+write.csv(seu8_markers, file.path(RES_DIR, "seu8_markers.csv")) 
+
+top_n_8<- seu8_markers %>%
+dplyr::filter(!str_detect(gene, "^Rpl")) %>%
+dplyr::filter(!str_detect(gene, "^Rps"))%>%
+dplyr::filter(!str_detect(gene, "^mt-")) %>%
+group_by(cluster) %>%
+slice_max(n = 10, order_by = avg_log2FC ) 
+
+DefaultAssay(seu8)<-"RNA"
+seu8<-ScaleData(seu8)
+
+DoHeatmap(seu8, features = top_n_8$gene, assay = "RNA", group.by = "seurat_clusters", group.colors =cd8_clus_cols, raster = F)+scale_fill_gradientn(colours = h_cols)+ggtitle(label="CD8")
+```
+
+```{r cd8 heatmap cond}
+Idents(seu8)<-"cond"
+seu8_cond_markers<-FindAllMarkers(seu8)
+#write.csv(seu8_cond_markers, file.path(RES_DIR, "seu8_cond_markers.csv"))
+
+top_n_8_con<- seu8_markers %>%
+dplyr::filter(!str_detect(gene, "^Rpl")) %>%
+dplyr::filter(!str_detect(gene, "^Rps"))%>%
+dplyr::filter(!str_detect(gene, "^mt-")) %>%
+group_by(cluster) %>%
+slice_max(n = 10, order_by = avg_log2FC ) 
+
+DoHeatmap(seu8, features = top_n_8_con$gene, assay = "RNA", group.by = "cond", group.colors = cond_cols, raster = T)+scale_fill_gradientn(colours = h_cols)+ggtitle(label="CD8")
+```
+
+# cellularity of clusters across conditions
+```{r CD8 cluster cond cellularity}
+df<- data.frame(table(seu8$sub.cluster, seu8$cond))
+
+ggplot(df, aes(fill = Var1, y=Freq, x=Var2)) + 
+    geom_bar(stat = "identity",  position = "fill")+scale_fill_manual(values = cd8_clus_cols)+theme_classic()+RotatedAxis()+NoGrid()
+```
+
+```{r CD4 cluster cond cellularity}
+df<- data.frame(table(seu4$seurat_clusters, seu4$cond))
+
+ggplot(df, aes(fill = Var1, y=Freq, x=Var2)) + 
+    geom_bar(stat = "identity",  position = "fill")+scale_fill_manual(values =cd4_clus_cols)+theme_classic()+RotatedAxis()+NoGrid()
+```
+
+```{r cd8 cond count}
+df<- data.frame(table(seu8$cond))
+ggplot(df, aes(fill = Var1, y=Freq, x=Var1)) + 
+    geom_bar(stat = "identity")+scale_fill_manual(values = cond_cols)+theme_classic()+RotatedAxis()+NoGrid()
+```
+
+```{r cd4 cond count}
+df<- data.frame(table(seu4$cond))
+ggplot(df, aes(fill = Var1, y=Freq, x=Var1)) + 
+    geom_bar(stat = "identity")+scale_fill_manual(values = cond_cols)+theme_classic()+RotatedAxis()+NoGrid()
+```
+
+```{r cd8 mouse count}
+df<- data.frame(table(seu8$id))
+ggplot(df, aes(fill = Var1, y=Freq, x=Var1)) + 
+    geom_bar(stat = "identity")+scale_fill_manual(values = mouse_cols)+theme_classic()+RotatedAxis()+NoGrid()
+```
+
+```{r cd4 mouse count}
+df<- data.frame(table(seu4$id))
+ggplot(df, aes(fill = Var1, y=Freq, x=Var1)) + 
+    geom_bar(stat = "identity")+scale_fill_manual(values = mouse_cols)+theme_classic()+RotatedAxis()+NoGrid()
+```
+
+# Gene set expression
+```{r load gene sets}
+msig<-msigdbr(species = "Mus musculus", category = "H")
+oxphos<-msig[msig$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION",]$gene_symbol
+```
+
+```{r add module score}
+DefaultAssay(seu4)<-"RNA"
+seu4<-AddModuleScore(seu4, features = list(oxphos), name = "Oxphos")
+
+DefaultAssay(seu8)<-"RNA"
+seu8<-AddModuleScore(seu8, features = list(oxphos), name = "Oxphos")
+```
+
+```{r cd4 oxphos by cond}
+VlnPlot(seu4, features = "Oxphos1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
+```
+
+```{r cd4 oxphos clusters}
+VlnPlot(seu4, features = "Oxphos1", group.by = "seurat_clusters", cols = cd4_clus_cols, pt.size =0, y.max = 0.55)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")
+```
+
+```{r cd4 oxphos C0 v C1}
+my_comparisons <- list( c("0", "1"))
+
+VlnPlot(seu4[, seu4$seurat_clusters %in% c(0, 1)], features = "Oxphos1", group.by = "seurat_clusters", cols = cd4_clus_cols, pt.size =0, y.max = 0.55)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)
+```
+
+```{r cd4 oxphos C3 v C6}
+my_comparisons <- list( c("3", "6"))
+
+VlnPlot(seu4[, seu4$seurat_clusters %in% c(3, 6)], features = "Oxphos1", group.by = "seurat_clusters", cols = cd4_clus_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)
+```
+
+```{r cd8 oxphos by cond}
+VlnPlot(seu8, features = "Oxphos1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
+```
+
+```{r cd8 oxphos clusters}
+VlnPlot(seu8, features = "Oxphos1", group.by = "sub.cluster", cols = cd8_clus_cols, pt.size =0, y.max = 0.55)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")
+```
+
+```{r cd8 oxphos C0_0 v C 0_1}
+my_comparisons <- list( c("0_0", "0_1"))
+
+VlnPlot(seu8[, seu8$sub.cluster %in% c("0_0", "0_1")], features = "Oxphos1", group.by = "sub.cluster", cols = cd8_clus_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)
+```
+
+```{r cd8 oxphos C1 v C3}
+my_comparisons <- list( c("1", "3"))
+
+VlnPlot(seu8[, seu8$sub.cluster %in%c("1", "3")], features = "Oxphos1", group.by = "sub.cluster", cols = cd8_clus_cols, pt.size =0, y.max = 0.7)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)
+```
+
+# Dot plots
+```{r cd4 dot plot}
+Idents(seu4)<-"seurat_clusters"
+
+DotPlot_scCustom(seu4, features = c("Il2rb","Il7r","Il18r1","Ccr7","Sell", "Slamf6","Cd44", "Cxcr5","Cxcr6","Klrg1","Ly6c2","Mki67","Pclaf",  
+"Cenpa","Hif1a","P2rx7", "Cd226","Fcer1g","Klrd1","Gzma","Gzmb","Ifng","Ccl3","Ccl4","Bhlhe40", "Tnfrsf4","Tnfrsf9","Cd28", "Icos","Pdcd1","Tigit","Havcr2", "Tox","Nr4a2", "Bach2","Eomes","Tcf7","Bcl2","Bcl6","Tbx21", "Foxp3", "Rorc"), group.by = "seurat_clusters", colors_use= paletteContinuous(n=8)[c(1:3, 6:8)])+RotatedAxis()+ggtitle(label="CD4")
+```
+
+```{r cd8 dot plot}
+Idents(seu8)<-"sub.cluster"
+
+DotPlot_scCustom(seu8, features = c("Il2rb","Il7r","Il18r1","Ccr7","Sell","Slamf6","Cd44","Cxcr5", "Cxcr6","Klrg1","Ly6c2","Mki67","Pclaf","Cenpa","Hif1a","P2rx7","Cd226","Fcer1g", "Klrd1","Gzma","Gzmb","Ifng","Ccl3","Ccl4","Bhlhe40","Tnfrsf4","Tnfrsf9","Cd28","Icos","Pdcd1","Tigit","Havcr2","Tox","Nr4a2", "Bach2","Eomes","Tcf7","Bcl2","Tbx21","Id2","Id3"), group.by = "sub.cluster", colors_use= paletteContinuous(n=8)[c(1:3, 6:8)])+RotatedAxis()+ggtitle(label="CD8")
+```
+
+# Heatmaps
+```{r cd4 C0 v C1}
+tseu<-seu4[,seu4$seurat_clusters %in% c(0,1)]
+Idents(tseu)<-"seurat_clusters"
+DefaultAssay(tseu)<-"RNA"
+markers<-FindAllMarkers(tseu, only.pos = F)
+
+top_n<-markers %>%dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>% dplyr::filter(!str_detect(gene, "^Hist")) %>%group_by(cluster) %>% slice_max(avg_log2FC, n =20) 
+
+avg_mat<-AverageExpression(tseu, assays = "RNA", return.seurat = T, group.by = "seurat_clusters")
+mat <- avg_mat@assays$RNA@data[unique(top_n$gene),] %>% as.matrix()
+mat<- t(scale(t(mat)))
+
+pheatmap(mat,  border_color = "gray25", main = "C0 v C1 Top Markers Per Group")
+```
+
+```{r cd4 C3 v C6}
+tseu<-seu4[,seu4$seurat_clusters %in% c(3,6)]
+Idents(tseu)<-"seurat_clusters"
+DefaultAssay(tseu)<-"RNA"
+markers<-FindAllMarkers(tseu, only.pos = F)
+
+top_n<-markers %>%dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>% dplyr::filter(!str_detect(gene, "^Hist")) %>%group_by(cluster) %>% slice_max(avg_log2FC, n =20) 
+
+avg_mat<-AverageExpression(tseu, assays = "RNA", return.seurat = T, group.by = "seurat_clusters")
+mat <- avg_mat@assays$RNA@data[unique(top_n$gene),] %>% as.matrix()
+mat<- t(scale(t(mat)))
+
+pheatmap(mat,  border_color = "gray25", main = "C3 v C6 Top Markers Per Group")
+```
+
+```{r cd4 C2 v cond}
+tseu<-seu4[,seu4$seurat_clusters %in% c(2)]
+Idents(tseu)<-"cond"
+DefaultAssay(tseu)<-"RNA"
+markers<-FindAllMarkers(tseu, only.pos = F)
+
+top_n<-markers %>%dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>% dplyr::filter(!str_detect(gene, "^Hist")) %>%group_by(cluster) %>% slice_max(avg_log2FC, n =20) 
+
+avg_mat<-AverageExpression(tseu, assays = "RNA", return.seurat = T, group.by = "cond")
+mat <- avg_mat@assays$RNA@data[unique(top_n$gene),] %>% as.matrix()
+mat<- t(scale(t(mat)))
+
+pheatmap(mat,  border_color = "gray25", main = "C2 Cond Top Markers Per Group")
+```
+
+```{r Cd8 cluster analysis 0_0,0_1}
+table(seu8$sub.cluster)
+tseu<-seu8[,seu8$sub.cluster %in% c("0_0", "0_1")]
+Idents(tseu)<-"sub.cluster"
+DefaultAssay(tseu)<-"RNA"
+markers<-FindAllMarkers(tseu, only.pos = F)
+
+top_n<-markers %>%dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>% dplyr::filter(!str_detect(gene, "^Hist")) %>%group_by(cluster) %>% slice_max(avg_log2FC, n =20) 
+
+avg_mat<-AverageExpression(tseu, assays = "RNA", return.seurat = T, group.by = "sub.cluster")
+mat <- avg_mat@assays$RNA@data[unique(top_n$gene),] %>% as.matrix()
+mat<- t(scale(t(mat)))
+
+pheatmap(mat,  border_color = "gray25", main = " clus0_0 0_1 Top20 Markers")
+```
+
+```{r Cd8 cluster analysis 1,3}
+table(seu8$sub.cluster)
+tseu<-seu8[,seu8$sub.cluster %in% c("1", "3")]
+Idents(tseu)<-"sub.cluster"
+DefaultAssay(tseu)<-"RNA"
+markers<-FindAllMarkers(tseu, only.pos = F)
+
+top_n<-markers %>%dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>% dplyr::filter(!str_detect(gene, "^Hist")) %>%group_by(cluster) %>% slice_max(avg_log2FC, n =20) 
+
+avg_mat<-AverageExpression(tseu, assays = "RNA", return.seurat = T, group.by = "sub.cluster")
+mat <- avg_mat@assays$RNA@data[unique(top_n$gene),] %>% as.matrix()
+mat<- t(scale(t(mat)))
+
+pheatmap(mat,  border_color = "gray25", main = " c1_c3 Top20 Markers")
+```
+
+```{r cd8 clus4 Top15 analysis}
+table(seu8$sub.cluster)
+tseu<-seu8[,seu8$sub.cluster %in% c("4")]
+Idents(tseu)<-"cond"
+DefaultAssay(tseu)<-"RNA"
+markers<-FindAllMarkers(tseu, only.pos = F)
+
+top_n<-markers %>%dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>% dplyr::filter(!str_detect(gene, "^Hist")) %>%group_by(cluster) %>% slice_max(avg_log2FC, n =15) 
+
+avg_mat<-AverageExpression(tseu, assays = "RNA", return.seurat = T, group.by = "cond")
+mat <- avg_mat@assays$RNA@data[unique(top_n$gene),] %>% as.matrix()
+mat<- t(scale(t(mat)))
+
+pheatmap(mat,  border_color = "gray25", main = "Clus4 Top 15 Markers Per Cond")
+```
+
+# TEa analysis
+```{r cellularity of cond v TEa}
+df<-table(seu4$cond, seu4$TEa) %>% data.frame()
+df<-df[df$Var2 == "TEa",]
+
+ggplot(df, aes(fill = Var1, y=Freq, x=Var1)) + 
+    geom_bar(stat = "identity")+scale_fill_manual(values = cond_cols)+theme_classic()+RotatedAxis()+NoGrid()
+```
+
+```{r cd4 Tea marker heatmap}
+tseu<-seu4[,seu4$TEa %in% c("TEa")]
+Idents(tseu)<-"cond"
+DefaultAssay(tseu)<-"RNA"
+markers<-FindAllMarkers(tseu, only.pos = F)
+
+top_n<-markers %>%dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>% dplyr::filter(!str_detect(gene, "^Hist")) %>%group_by(cluster) %>% slice_max(avg_log2FC, n =20) 
+
+avg_mat<-AverageExpression(tseu, assays = "RNA", return.seurat = T, group.by = "cond")
+mat <- avg_mat@assays$RNA@data[unique(top_n$gene),] %>% as.matrix()
+mat<- t(scale(t(mat)))
+
+pheatmap(mat,  border_color = "gray25", main = "TEa Top Markers Per Cond")
+```
+
+# TCR analysis
+```{r cd4 clonality umap}
+#remove TEa cells
+table(seu4$TEa)
+tseu4<-seu4[,which(is.na(seu4$highlight))]
+
+Idents(tseu4)<-"seurat_clusters"
+
+clonalOverlay(tseu4,
+              reduction = "umap",  bins =20, freq.cutpoint = 1, facet = "cond") + 
+                 guides(color = "none")+scale_color_manual(values = cd4_clus_cols)+theme_void()
+
+slot(tseu4, "meta.data")$cloneType <- factor(slot(tseu4, "meta.data")$cloneType, 
+                levels = c("Hyperexpanded (100 < X <= 500)", 
+                           "Large (20 < X <= 100)", 
+                            "Medium (5 < X <= 20)", 
+                            "Small (1 < X <= 5)", 
+                            "Single (0 < X <= 1)", "None"))
+tseu4$cloneType<-factor(tseu4$cloneType, levels = c("None", "Single (0 < X <= 1)", "Small (1 < X <= 5)","Medium (5 < X <= 20)", "Large (20 < X <= 100)","Hyperexpanded (100 < X <= 500)"))
+tseu4$cloneType[is.na(tseu4$cloneType)]<-"None"
+
+DimPlot(tseu4, group.by = "cloneType", split.by = "cond", pt.size = 0.7, order = T) + scale_color_manual(values = c("gray90", rev(brewer.spectral(n =5)))) +theme(plot.title = element_blank())&NoAxes()
+```
+
+```{r cd8 clonality umap}
+Idents(seu8)<-"sub.cluster"
+
+clonalOverlay(seu8, 
+              reduction = "umap", facet = "cond", bins =20, freq.cutpoint = 1) + 
+                 guides(color = "none")+scale_color_manual(values = cd8_clus_cols)+theme_void()
+
+slot(seu8, "meta.data")$cloneType <- factor(slot(seu8, "meta.data")$cloneType, 
+                levels = c("Hyperexpanded (100 < X <= 500)", 
+                           "Large (20 < X <= 100)", 
+                            "Medium (5 < X <= 20)", 
+                            "Small (1 < X <= 5)", 
+                            "Single (0 < X <= 1)", "None"))
+
+seu8$cloneType<-factor(seu8$cloneType, levels = c("None", "Single (0 < X <= 1)", "Small (1 < X <= 5)","Medium (5 < X <= 20)", "Large (20 < X <= 100)","Hyperexpanded (100 < X <= 500)"))
+seu8$cloneType[is.na(seu8$cloneType)]<-"None"
+
+DimPlot(seu8, group.by = "cloneType", split.by = "cond", pt.size = 0.7, order = T) + scale_color_manual(values = c("gray90", rev(brewer.spectral(n =5)))) +theme(plot.title = element_blank())&NoAxes()
+```
+
+```{r cd8 circle plots}
+Idents(seu8)<-"sub.cluster"
+circles <- getCirclize(seu8, group.by = "sub.cluster")
+chordDiagram(circles, self.link = 1, grid.col = cd8_clus_cols)
+```
+
+```{r cd4 circle plots}
+Idents(tseu4)<-"seurat_clusters"
+circles <- getCirclize(tseu4, group.by = "seurat_clusters")
+chordDiagram(circles, self.link = 1, grid.col = cd4_clus_cols)
+```
+
+```{r cd4 seurat clusters simpsons clonality}
+simp<-read.csv('../res/cd4_seurat_clusters_clonality.csv')
+table(simp$seurat_clusters)
+
+simp<-simp %>% arrange(simpsons_clonality)
+simp$seurat_clusters <- factor(simp$seurat_clusters, levels = rev(simp$seurat_clusters) )
+
+ggplot(simp, aes(x = seurat_clusters, y = simpsons_clonality, fill = seurat_clusters)) +
+  geom_bar(stat="identity")+scale_fill_manual(values = cd4_clus_cols)+theme_classic()+ylab(label = "Simpson's Clonality Index")&NoLegend()&RotatedAxis()
+```
+
+```{r cd8 sub cluster simpsons clonality}
+simp<-read.csv('../res/cd8_sub_cluster_clonality.csv')
+table(simp$sub_cluster)
+
+simp<-simp %>% arrange(simpsons_clonality)
+simp$sub_cluster <- factor(simp$sub_cluster, levels = rev(simp$sub_cluster) )
+
+ggplot(simp, aes(x = sub_cluster, y = simpsons_clonality, fill = sub_cluster)) +
+  geom_bar(stat="identity")+scale_fill_manual(values = cd8_clus_cols)+theme_classic()+ylab(label = "Simpson's Clonality Index")&NoLegend()&RotatedAxis()
+```
+
+```{r cd4 cond simpsons clonality}
+simp<-read.csv('../res/cd4_cond_clonality.csv')
+simp<-simp %>% arrange(simpsons_clonality)
+simp$cond <- factor(simp$cond, levels = rev(simp$cond) )
+
+ggplot(simp, aes(x = cond, y = simpsons_clonality, fill = cond)) +
+  geom_bar(stat="identity")+scale_fill_manual(values = cond_cols)+theme_classic()+ylab(label = "Simpson's Clonality Index")&NoLegend()&RotatedAxis()
+```
+
+```{r cd8 cond simpsons clonality}
+simp<-read.csv('../res/cd8_cond_clonality.csv')
+table(simp$cond)
+simp<-simp %>% arrange(simpsons_clonality)
+simp$cond<- factor(simp$cond, levels = rev(simp$cond) )
+
+ggplot(simp, aes(x = cond, y = simpsons_clonality, fill = cond)) +
+  geom_bar(stat="identity")+scale_fill_manual(values = cond_cols)+theme_classic()+ylab(label = "Simpson's Clonality Index")&NoLegend()&RotatedAxis()
+```
+
+```{r cd4 mouse simpsons clonality}
+simp<-read.csv('../res/cd4_mouse_clonality.csv')
+simp<-simp %>% arrange(simpsons_clonality)
+simp$id <- factor(simp$id, levels = rev(simp$id) )
+
+ggplot(simp, aes(x = id, y = simpsons_clonality, fill = id)) +
+  geom_bar(stat="identity")+scale_fill_manual(values = mouse_cols)+theme_classic()+ylab(label = "Simpson's Clonality Index")&NoLegend()&RotatedAxis()
+```
+
+```{r cd8 mouse simpsons clonality}
+simp<-read.csv('../res/cd8_mouse_clonality.csv')
+simp<-simp %>% arrange(simpsons_clonality)
+simp$id <- factor(simp$id, levels = rev(simp$id) )
+
+ggplot(simp, aes(x = id, y = simpsons_clonality, fill = id)) +
+  geom_bar(stat="identity")+scale_fill_manual(values = mouse_cols)+theme_classic()+ylab(label = "Simpson's Clonality Index")&NoLegend()&RotatedAxis()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

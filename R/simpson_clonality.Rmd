@@ -1,0 +1,178 @@
+
+```{r, warning=FALSE, message=FALSE, warning=FALSE, echo=F}
+rm(list=ls())
+ROOT_DIR<-"/fh/fast/furlan_s/experiments/Ping"
+DATA_DIR <- file.path(ROOT_DIR, "data")      # SPECIFY HERE
+RES_DIR  <- file.path(ROOT_DIR,  "res")     # SPECIFY HERE
+RMD_DIR  <- file.path(ROOT_DIR,  "rmd")     # SPECIFY HERE
+CDS_DIR <- file.path(ROOT_DIR,   "cds")
+FIG_DIR <- file.path(ROOT_DIR,  "figs")
+
+set.seed(1234)
+```
+
+```{r load clonotype data}
+clontype_df<- read.csv(file.path(RES_DIR, "clonotype_df.csv"))
+```
+
+# prepare clonotype data frame for phils code :)
+```{r}
+clonotype_df<-do.call(rbind, combined)
+clontype_df4<-merge(clontype_df, tseu4@meta.data)
+clontype_df8<-merge(clonotype_df, seu8@meta.data)
+
+names(clontype_df8)[57]<-"sub_cluster"
+```
+
+# set up python environment
+```{r}
+Sys.setenv(RETICULATE_PYTHON = "~/.conda/envs/py3/bin/python3")
+
+library("reticulate")
+use_python("~/.conda/envs/py3/bin/python3")
+use_condaenv("~/.conda/envs/py3")
+py_config()
+```
+
+# load excess amount of libraries
+```{python libraries }
+import numpy as np 
+import pandas as pd
+
+import scanpy as sc
+from anndata import AnnData, concat
+
+import matplotlib.pyplot as plt
+import matplotlib_venn as venn
+import seaborn as sns
+
+from scipy import sparse, stats
+from scipy.cluster import hierarchy
+import pymn
+import gc
+from upsetplot import plot as UpSet
+from itertools import product
+import networkx as nx
+
+
+import re
+import h5py
+
+import itertools
+
+import statsmodels.api as sm
+
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+
+from scipy.ndimage import gaussian_filter
+
+import scanpy as sc
+from collections import Counter, OrderedDict
+from os import system
+```
+
+#run 
+##cell type
+```{python cd4 seurat_clusters}
+df = r.clontype_df4
+clusters = sorted(set(df.seurat_clusters))
+all_freqs = {}
+clonalities = []
+dfl = []
+for c in clusters:
+  counts = Counter(df[df.seurat_clusters==c].CTaa)
+  top_counts = [x[1] for x in counts.most_common(10)]
+  total = sum(counts.values())
+  clonality = sum(x*(x-1) for x in counts.values())/((total*(total-1)))
+  all_freqs[c] = Counter({x:y/total for x,y in counts.items()})
+  ct = set(df[df.seurat_clusters==c].seurat_clusters).pop()
+  print(f'clonality: {clonality:.3f} {total:4d} {ct}', top_counts)
+  name = set(df[df.seurat_clusters==c].seurat_clusters)
+  assert len(name) == 1
+  dfl.append(dict(
+    cluster=c,
+    seurat_clusters=name.pop(),
+    simpsons_clonality=clonality,
+    ))
+  clonalities.append(clonality)
+pd.DataFrame(dfl).to_csv('../res/cd4_seurat_clusters_clonality.csv', index=False)
+```
+
+```{python cd8 sub_clusters}
+df = r.clontype_df8
+clusters = sorted(set(df.sub_cluster))
+all_freqs = {}
+clonalities = []
+dfl = []
+for c in clusters:
+  counts = Counter(df[df.sub_cluster==c].CTaa)
+  top_counts = [x[1] for x in counts.most_common(10)]
+  total = sum(counts.values())
+  clonality = sum(x*(x-1) for x in counts.values())/((total*(total-1)))
+  all_freqs[c] = Counter({x:y/total for x,y in counts.items()})
+  ct = set(df[df.sub_cluster==c].sub_cluster).pop()
+  print(f'clonality: {clonality:.3f} {total:4d} {ct}', top_counts)
+  name = set(df[df.sub_cluster==c].sub_cluster)
+  assert len(name) == 1
+  dfl.append(dict(
+    cluster=c,
+    sub_cluster=name.pop(),
+    simpsons_clonality=clonality,
+    ))
+  clonalities.append(clonality)
+pd.DataFrame(dfl).to_csv('../res/cd8_sub_cluster_clonality.csv', index=False)
+```
+
+## cond
+```{python cond}
+df = r.clontype_df4
+clusters = sorted(set(df.cond))
+all_freqs = {}
+clonalities = []
+dfl = []
+for c in clusters:
+  counts = Counter(df[df.cond==c].CTaa)
+  top_counts = [x[1] for x in counts.most_common(10)]
+  total = sum(counts.values())
+  clonality = sum(x*(x-1) for x in counts.values())/((total*(total-1)))
+  all_freqs[c] = Counter({x:y/total for x,y in counts.items()})
+  ct = set(df[df.cond==c].cond).pop()
+  print(f'clonality: {clonality:.3f} {total:4d} {ct}', top_counts)
+  name = set(df[df.cond==c].cond)
+  assert len(name) == 1
+  dfl.append(dict(
+    cluster=c,
+    cond=name.pop(),
+    simpsons_clonality=clonality,
+    ))
+  clonalities.append(clonality)
+pd.DataFrame(dfl).to_csv('../res/cd4_cond_clonality.csv', index=False)
+```
+
+## mouse
+```{python mouse}
+df = r.clontype_df4
+clusters = sorted(set(df.id))
+all_freqs = {}
+clonalities = []
+dfl = []
+for c in clusters:
+  counts = Counter(df[df.id==c].CTaa)
+  top_counts = [x[1] for x in counts.most_common(10)]
+  total = sum(counts.values())
+  clonality = sum(x*(x-1) for x in counts.values())/((total*(total-1)))
+  all_freqs[c] = Counter({x:y/total for x,y in counts.items()})
+  ct = set(df[df.id==c].id).pop()
+  print(f'clonality: {clonality:.3f} {total:4d} {ct}', top_counts)
+  name = set(df[df.id==c].id)
+  assert len(name) == 1
+  dfl.append(dict(
+    cluster=c,
+    id=name.pop(),
+    simpsons_clonality=clonality,
+    ))
+  clonalities.append(clonality)
+pd.DataFrame(dfl).to_csv('../res/cd4_mouse_clonality.csv', index=False)
+# pd.DataFrame(dfl).to_csv('../res/cd8_mouse_clonality.csv', index=False)
+```
