@@ -202,18 +202,33 @@ ggplot(df, aes(fill = Var1, y=Freq, x=Var1)) +
 ```{r load gene sets}
 msig<-msigdbr(species = "Mus musculus", category = "H")
 oxphos<-msig[msig$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION",]$gene_symbol
+
+stem<-read.csv(file.path(DATA_DIR, "gene_sets/stem-like_genes.csv"))
+tex<-read.csv(file.path(DATA_DIR, "gene_sets/Tex_markers_shietinger.csv" ))
 ```
 
 ```{r add module score}
 DefaultAssay(seu4)<-"RNA"
 seu4<-AddModuleScore(seu4, features = list(oxphos), name = "Oxphos")
+seu4<-AddModuleScore(seu4, features = list(stem$Gene), name = "Stem_like")
+seu4<-AddModuleScore(seu4, features = list(tex$Gene), name = "Tex")
 
 DefaultAssay(seu8)<-"RNA"
 seu8<-AddModuleScore(seu8, features = list(oxphos), name = "Oxphos")
+seu8<-AddModuleScore(seu8, features = list(stem$Gene), name = "Stem_like")
+seu8<-AddModuleScore(seu8, features = list(tex$Gene), name = "Tex")
 ```
 
 ```{r cd4 oxphos by cond}
 VlnPlot(seu4, features = "Oxphos1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
+```
+
+```{r cd4 tex by cond}
+VlnPlot(seu4, features = "Tex1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
+```
+
+```{r cd4 stem by cond}
+VlnPlot(seu4, features = "Stem_like1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
 ```
 
 ```{r cd4 oxphos clusters}
@@ -234,6 +249,14 @@ VlnPlot(seu4[, seu4$seurat_clusters %in% c(3, 6)], features = "Oxphos1", group.b
 
 ```{r cd8 oxphos by cond}
 VlnPlot(seu8, features = "Oxphos1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
+```
+
+```{r cd8 tex by cond}
+VlnPlot(seu8, features = "Tex1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
+```
+
+```{r cd8 stem by cond}
+VlnPlot(seu8, features = "Stem_like1", group.by = "cond", cols = cond_cols, pt.size =0)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")&NoLegend()
 ```
 
 ```{r cd8 oxphos clusters}
